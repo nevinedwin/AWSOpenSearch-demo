@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Hyphen CRM Application Vpc Trail"
+
+
+
+Resources:
+
+
+  # ------------------ VPC ---------------------- #
+  CRMTrailVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+
+
+  # ----------- SUBNET PRIVATE 1 -------------- #
+  CRMTrailSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CRMTrailVPC
+      CidrBlock: 10.0.1.0/26
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: "AWS::Region"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Value: Private-1 
+          Key: Name
+
+
+  # ------------- SUBNET PRIVATE 2 ------------------ #
+  CRMTrailSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CRMTrailVPC
+      CidrBlock: 10.0.1.64/26
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+          Ref: "AWS::Region"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Value: Private-2 
+          Key: Name
+  
+
+  # ----------------- SUBNET PUBLIC 2 ------------------- #
+  CRMTrailSubnetPublic2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CRMTrailVPC
+      CidrBlock: 10.0.1.128/26
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+          Ref: "AWS::Region"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Value: Public-2 
+          Key: Name
+  
+
+  # ---------------- SUBNET PUBLIC 1 ------------------- #
+  CRMTrailSubnetPublic1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CRMTrailVPC
+      CidrBlock: 10.0.1.192/26
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: "AWS::Region"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Value: Public-1 
+          Key: Name
+
+
+  # -------------- INTERNET GATEWAY ----------------- #
+  CRMTrailIG:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Value: Ig-crm-trail 
+          Key: Name
+    
+
+  # ------------ INTERNET GATEWAY ATTACHMENT -------------- #
+  CRMTrailGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref CRMTrailVPC
+      InternetGatewayId: !Ref CRMTrailIG
+
+
+  # --------------- ROUTE TABLE --------------- #
+  CRMTrailVPCRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CRMTrailVPC
+      Tags:
+        - Value: crm-trail-route-table 
+          Key: Name
+  
+
+  # ------------------ ROUTEING ----------------#
+  CRMTrailVPCRoute:
+    Type: AWS::EC2::Route
+    DependsOn: CRMTrailGatewayAttachment
+    Properties:
+      RouteTableId: !Ref CRMTrailVPCRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CRMTrailIG
+
+
+  # ----------- PRIVATE SUBNET 1 ASSOCIATION ---------- #
+  CRMTrailVPCSubnetAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CRMTrailSubnet1
+      RouteTableId: !Ref CRMTrailVPCRouteTable
+
+
+  # ---------- PRIVATE SUBNET 2 ASSOCIATION ----------- #
+  CRMTrailVPCSubnet2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CRMTrailSubnet2
+      RouteTableId: !Ref CRMTrailVPCRouteTable
+
+
+  # --------- PUBLIC SUBNET 1 ASSOCIATION --------------- #
+  CRMTrailVPCPublicSubnet1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CRMTrailSubnetPublic1
+      RouteTableId: !Ref CRMTrailVPCRouteTable
+
+
+  # --------- PUBLIC SUBNET 2 ASSOCIATION ---------------- #
+  CRMTrailVPCPublicSubnet2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CRMTrailSubnetPublic2
+      RouteTableId: !Ref CRMTrailVPCRouteTable
+  
+
+  # -------------- VPC ENDPOINT ----------------------#
+  # CRMTrailElasticSearchDomainCRMSourceEndPoint:
+  #   Type: AWS::EC2::VPCEndpoint
+  #   Properties:
+  #     ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+  #     VpcId: !Ref CRMTrailVPC
+  #     RouteTableIds:
+  #       - !Ref CRMTrailVPCRouteTable
+  
+
+  # ------------ SECURITY GROUP FOR OPENSEARCH ----------------- #
+  CRMTrailElasticSecurityGroups:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow elastic Access from proxy lambda
+      VpcId: !Ref CRMTrailVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref CRMTrailProxyLambdaSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 49.37.232.111/32
+  
+
+  # ---------- SECURITY GROUP FOR ELASTIC LAMBDA ------------------ #
+  CRMTrailProxyLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows lambda for axcessing from outside vpc
+      VpcId: !Ref CRMTrailVPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 433
+          ToPort: 433
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 433
+          ToPort: 433
+          CidrIp: 0.0.0.0/0
+  
+
+Outputs:
+
+  VPCId:
+    Value: !Ref CRMTrailVPC
+
+  PublicSubnet1:
+    Value: !Ref CRMTrailSubnetPublic1
+  
+  PublicSubnet2:
+    Value: !Ref CRMTrailSubnetPublic2
+  
+  PrivateSubnet1:
+    Value: !Ref CRMTrailSubnet1
+  
+  PrivateSubnet2:
+    Value: !Ref CRMTrailSubnet2
+  
+  OpensearchSG:
+    Value: !Ref CRMTrailElasticSecurityGroups
+
+  LambdaSG:
+    Value: !Ref CRMTrailProxyLambdaSecurityGroup

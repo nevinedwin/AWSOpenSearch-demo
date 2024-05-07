@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Hyphen CRM Application Dynamodb Trail"
+
+Resources:
+  
+  
+  # ----------------- DYNAMODB -------------------------- #
+  CRMTrailTestEntitiesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: testcrmEntitiesTable
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: entity
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+        - AttributeName: entity
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: "NEW_AND_OLD_IMAGES"
+  
+
+Outputs:
+
+  DynamoDBArn:
+    Value: !GetAtt CRMTrailTestEntitiesTable.Arn
+  
+  DynamoDBStreamArn:
+    Value: !GetAtt CRMTrailTestEntitiesTable.StreamArn

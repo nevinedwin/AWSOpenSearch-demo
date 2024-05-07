@@ -1,0 +1,200 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Hyphen CRM Application Function Trail"
+
+Parameters:
+  StageName: 
+    Type: String
+  OpenSearchDomain:
+    Type: String
+  DynamoDBStreamArn:
+    Type: String
+  LambdaLayer:
+    Type: String
+  LambdaSG:
+    Type: String
+  PublicSubnet1:
+    Type: String
+  PublicSubnet2:
+    Type: String
+  OpensearchDomainEndpoint:
+    Type: String
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 900
+    Layers:
+    - !Ref LambdaLayer
+
+Resources:
+
+
+  # ----------------------- APIGATEWAY ----------------------------- #
+  CRMTrailApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: crm-trail-api-end-point
+      StageName: !Ref StageName
+      Cors:
+        AllowMethods: '''GET,POST'''
+        AllowHeaders: '''Content-Type,X-Amz-Date,Authorization,X-Api-KeyContent-Type,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'''
+        AllowOrigin: '''*'''
+
+
+  # ------------------------- Lambda Role --------------------------------- #
+  CRMTrailProxyLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: CRMTrailProxyLambdaRolePolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                  - es:ESHttpGet
+                  - es:ESHttpDelete
+                  - es:ESHttpPut
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${OpenSearchDomain}/*"
+                  - arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:ListStreams
+                Resource: !Ref DynamoDBStreamArn
+              - Effect: "Allow"
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+  
+
+  # --------------------- STREAM LAMBDA -------------------- #
+  CRMTrailDbStreamLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: crm-trail-dbStream-function
+      Handler: dynamoStream.main
+      CodeUri: dynamoStream
+      Role: !GetAtt CRMTrailProxyLambdaRole.Arn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSG
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+      Events:
+        DBStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !Ref DynamoDBStreamArn
+            StartingPosition: LATEST
+            BatchSize: 1
+        DBWarmUpRule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+
+
+  # ---------------------- PROXY LAMBDA ------------------- #
+  CRMTrailProxyLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: crm-trail-proxylambda-function
+      Handler: elastic.main
+      CodeUri: elastic
+      Role: !GetAtt CRMTrailProxyLambdaRole.Arn
+      Environment:
+        Variables:
+          ES_ENDPOINT: !Ref OpensearchDomainEndpoint
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSG
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+      Events:
+        ApiTrigger:
+          Type: Api
+          Properties:
+            Method: POST
+            Path: /elastic
+            RestApiId: !Ref CRMTrailApiGateway
+        ProxyWarmUpRule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+  
+
+  # ----------------------- TEST LAMBDA ROLE -------------------- #
+  CRMTrailTestLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: CRMTrailTestLambdaRolePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: "arn:aws:lambda:*:*:function:*" 
+
+
+  # ---------------------- TEST LAMBDA ------------------------- #
+  CRMTrailTestLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: crmtrail.main
+      CodeUri: crmtrail
+      MemorySize: 512
+      Timeout: 900
+      FunctionName: crm-trail-es-test
+      Environment:
+        Variables:
+          ELASTIC_LAMBDA_ARN: !GetAtt CRMTrailProxyLambda.Arn
+      Role: !GetAtt CRMTrailTestLambdaRole.Arn
+      Events:
+        ApiTrigger:
+          Type: Api
+          Properties:
+            Method: GET
+            RestApiId: !Ref CRMTrailApiGateway
+            Path: /test
+
+
+Outputs:
+
+  ApiGatewayURL:
+    Description: "Api gateway URL"
+    Value: !Sub "https://${CRMTrailApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"

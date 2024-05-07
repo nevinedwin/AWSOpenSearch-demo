@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Hyphen CRM Application Opensearch Trail"
+
+
+Parameters:
+  PrivateSubnet1:
+    Type: String
+  PrivateSubnet2:
+    Type: String
+  StageName:
+    Type: String
+  DynamoDBArn:
+    Type: String
+  DynamoDBStreamArn:
+    Type: String
+  OpensearchSG:
+    Type: String
+
+
+Mappings:
+  ElasticSearchOptions:
+    dev:
+      InstanceType: t2.small.elasticsearch
+      InstanceCount: 2
+      MasterEnables: "false"
+      DedicatedMasterType: c5.large.elasticsearch
+      DedicatedMasterCount: 0
+      EBSVolumeSize: 10
+      EBSVolumeType: gp2
+      AvailabilityZoneCount: 2
+      ZoneAwarenessEnabled: "true"
+
+
+Resources:
+
+
+  # ----------------OPENSEARCH IAM ROLE ------------------- #
+  CRMTrailOpenSearchRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: "CRMTrailOpenSearchRolePolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: "Allow"
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:ListStreams
+                Resource: !Ref DynamoDBStreamArn
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource:
+                  - !Ref DynamoDBArn
+
+
+  # --------------- OPENSEARCH SERVICE LINKING ROLE ------------------- #
+  OpenSearchServiceLinkedRole:
+    Type: AWS::IAM::ServiceLinkedRole
+    Properties:
+      AWSServiceName: es.amazonaws.com
+      Description: Service-linked role for Amazon OpenSearch Service
+
+
+  # ------------------ DOMAIN OPENSEARCH ----------------------------- #  
+  CRMTrailElasticSearchDomainCRMSource:
+    Type: AWS::Elasticsearch::Domain
+    Properties:
+      DomainName: crm-demo-source
+      ElasticsearchClusterConfig:
+        InstanceType: !FindInMap [ElasticSearchOptions, !Ref StageName, InstanceType]
+        InstanceCount: !FindInMap [ElasticSearchOptions, !Ref StageName, InstanceCount]
+        DedicatedMasterEnabled: "false"
+        DedicatedMasterType: !Ref AWS::NoValue
+        DedicatedMasterCount: !Ref AWS::NoValue
+        ZoneAwarenessConfig:
+          AvailabilityZoneCount: 2
+        ZoneAwarenessEnabled: "true"
+      EBSOptions:
+        EBSEnabled: true
+        Iops: 0
+        VolumeSize: 10
+        VolumeType: gp2
+      AccessPolicies:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal: 
+              AWS: !GetAtt CRMTrailOpenSearchRole.Arn
+            Action: "es:*"
+            Resource: "*"
+      AdvancedOptions:
+        indices.fielddata.cache.size: ""
+        rest.action.multi.allow_explicit_index: "true"
+      ElasticsearchVersion: "6.8"
+      VPCOptions:
+        SecurityGroupIds:
+          - !Ref OpensearchSG
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+
+
+Outputs:
+
+  ElasticSearchDomain:
+    Description: "Domain name"
+    Value: !Ref CRMTrailElasticSearchDomainCRMSource
+  
+  ElasticsearchDomainARN:
+    Description: "ElasticsearchDomainARN"
+    Value: !GetAtt CRMTrailElasticSearchDomainCRMSource.Arn
+
+  ElasticDomainARN:
+    Description: "ElasticDomainARN"
+    Value: !GetAtt CRMTrailElasticSearchDomainCRMSource.DomainArn
+
+  ElasticsearchDomainEndpoint:
+    Description: "ElasticsearchDomainEndpoint"
+    Value: !GetAtt CRMTrailElasticSearchDomainCRMSource.DomainEndpoint

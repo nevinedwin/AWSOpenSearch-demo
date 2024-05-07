@@ -1,0 +1,22 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Hyphen CRM Application Layers Trail"
+
+
+
+Resources:
+
+  # ----------------------- LAMBDA LAYER ---------------------------------- #
+  CRMTrailSampleLayerEs:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      ContentUri: ./lambdaLayerStack/nodejs.zip
+      LayerName: "es-sample-lambda-layer"
+      RetentionPolicy: Delete
+      CompatibleRuntimes:
+        - "nodejs16.x"
+
+Outputs:
+
+  LambdaLayer:
+    Value: !Ref CRMTrailSampleLayerEs

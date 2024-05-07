@@ -1,0 +1,19 @@
+{
+  "name": "elastic_search_demo",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "sam package --template-file ./root-template.yaml --s3-bucket crm-trail-1 --output-template-file packaged.yaml --region us-west-1 --profile hyphen-dev",
+    "deploy": "sam deploy --template-file ./packaged.yaml --region us-west-1 --stack-name crm-elastic-demo --s3-bucket crm-trail-1 --profile hyphen-dev --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND",
+    "start": "npm run build && npm run deploy",
+    "delete": "aws cloudformation delete-stack --stack-name crm-elastic-demo --profile hyphen-dev --region us-west-1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "archiver": "^7.0.1"
+  }
+}

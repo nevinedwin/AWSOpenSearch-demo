@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Hyphen CRM Application Elastic search private Trail
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+    AllowedValues:
+    - dev
+    - prod
+Resources:
+  CRMTrailVPCStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.us-west-1.amazonaws.com/crm-trail-1/101f03867d6c2f5ebb157ea41fb14891.template
+    Metadata:
+      SamResourceId: CRMTrailVPCStack
+  CRMTrailDynamoDBStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.us-west-1.amazonaws.com/crm-trail-1/d7ccaaf5ea5a1cdbcd6c36da234ab098.template
+    Metadata:
+      SamResourceId: CRMTrailDynamoDBStack
+  CRMTrailOpenSearchStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.us-west-1.amazonaws.com/crm-trail-1/0678e2a0ea1c5e0b81b8da45a1b37576.template
+      Parameters:
+        PrivateSubnet1:
+          Fn::GetAtt:
+          - CRMTrailVPCStack
+          - Outputs.PrivateSubnet1
+        PrivateSubnet2:
+          Fn::GetAtt:
+          - CRMTrailVPCStack
+          - Outputs.PrivateSubnet2
+        OpensearchSG:
+          Fn::GetAtt:
+          - CRMTrailVPCStack
+          - Outputs.OpensearchSG
+        StageName:
+          Ref: StageName
+        DynamoDBArn:
+          Fn::GetAtt:
+          - CRMTrailDynamoDBStack
+          - Outputs.DynamoDBArn
+        DynamoDBStreamArn:
+          Fn::GetAtt:
+          - CRMTrailDynamoDBStack
+          - Outputs.DynamoDBStreamArn
+    Metadata:
+      SamResourceId: CRMTrailOpenSearchStack
+  CRMTrailFunctionStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.us-west-1.amazonaws.com/crm-trail-1/638090b085dc57aab204b5e5ea135843.template
+      Parameters:
+        StageName:
+          Ref: StageName
+        OpenSearchDomain:
+          Fn::GetAtt:
+          - CRMTrailOpenSearchStack
+          - Outputs.ElasticSearchDomain
+        DynamoDBStreamArn:
+          Fn::GetAtt:
+          - CRMTrailDynamoDBStack
+          - Outputs.DynamoDBStreamArn
+        LambdaLayer:
+          Fn::GetAtt:
+          - CRMTrailLambdaLayerStack
+          - Outputs.LambdaLayer
+        LambdaSG:
+          Fn::GetAtt:
+          - CRMTrailVPCStack
+          - Outputs.LambdaSG
+        OpensearchDomainEndpoint:
+          Fn::GetAtt:
+          - CRMTrailOpenSearchStack
+          - Outputs.ElasticsearchDomainEndpoint
+        PublicSubnet1:
+          Fn::GetAtt:
+          - CRMTrailVPCStack
+          - Outputs.PublicSubnet1
+        PublicSubnet2:
+          Fn::GetAtt:
+          - CRMTrailVPCStack
+          - Outputs.PublicSubnet2
+    Metadata:
+      SamResourceId: CRMTrailFunctionStack
+  CRMTrailLambdaLayerStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.us-west-1.amazonaws.com/crm-trail-1/8e32bdd4becc1cf53eb580b62da99ff8.template
+    Metadata:
+      SamResourceId: CRMTrailLambdaLayerStack
+Outputs:
+  ApiGatewayURL:
+    Description: API GATEWAY URL
+    Value:
+      Fn::GetAtt:
+      - CRMTrailFunctionStack
+      - Outputs.ApiGatewayURL

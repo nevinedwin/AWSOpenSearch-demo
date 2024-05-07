@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Hyphen CRM Application Elastic search private Trail"
+
+
+Parameters:
+  StageName:
+    Type: String
+    Default: "dev"
+    AllowedValues:
+      - dev
+      - prod
+
+
+Resources:
+
+
+  # ---------- VPC TEMPLATE ---------- #
+  CRMTrailVPCStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: crm-vpc-template.yaml
+      
+
+  # ------------ DYNAMO DB TEMPLATE ----------- #
+  CRMTrailDynamoDBStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: crm-dynamo-template.yaml
+
+
+  # ------- OPEN SEARCH TEMPLATE ----------- #
+  CRMTrailOpenSearchStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: crm-opensearch-template.yaml
+      Parameters:
+        PrivateSubnet1: !GetAtt CRMTrailVPCStack.Outputs.PrivateSubnet1
+        PrivateSubnet2: !GetAtt CRMTrailVPCStack.Outputs.PrivateSubnet2
+        OpensearchSG: !GetAtt CRMTrailVPCStack.Outputs.OpensearchSG
+        StageName: !Ref StageName 
+        DynamoDBArn: !GetAtt CRMTrailDynamoDBStack.Outputs.DynamoDBArn
+        DynamoDBStreamArn: !GetAtt CRMTrailDynamoDBStack.Outputs.DynamoDBStreamArn
+  
+
+  # ------------ FUNCTION TEMPLATE ------------ #
+  CRMTrailFunctionStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: crm-function-template.yaml
+      Parameters:
+        StageName: !Ref StageName
+        OpenSearchDomain: !GetAtt CRMTrailOpenSearchStack.Outputs.ElasticSearchDomain
+        DynamoDBStreamArn: !GetAtt CRMTrailDynamoDBStack.Outputs.DynamoDBStreamArn
+        LambdaLayer: !GetAtt CRMTrailLambdaLayerStack.Outputs.LambdaLayer
+        LambdaSG: !GetAtt CRMTrailVPCStack.Outputs.LambdaSG
+        OpensearchDomainEndpoint: !GetAtt CRMTrailOpenSearchStack.Outputs.ElasticsearchDomainEndpoint
+        PublicSubnet1: !GetAtt CRMTrailVPCStack.Outputs.PublicSubnet1
+        PublicSubnet2: !GetAtt CRMTrailVPCStack.Outputs.PublicSubnet2
+
+
+  #  ----------- LAMBDA LAYER TEMPLATE ---------------- #
+  CRMTrailLambdaLayerStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: crm-layers-template.yaml
+
+
+Outputs:
+
+  ApiGatewayURL:
+    Description: API GATEWAY URL
+    Value: !GetAtt CRMTrailFunctionStack.Outputs.ApiGatewayURL
